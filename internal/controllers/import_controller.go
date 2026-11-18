@@ -302,7 +302,7 @@ func (r *CAPIImportReconciler) reconcileNormal(ctx context.Context, capiCluster 
 
 	rancherCluster = cmp.Or(rancherCluster, updatedCluster)
 
-	r.optOutOfClusterOwner(ctx, rancherCluster)
+	r.reconcileClusterOwner(ctx, rancherCluster, capiCluster, clusterMissing)
 	r.propagateLabels(rancherCluster, capiCluster)
 	r.removeExternalFleetAnnotation(ctx, rancherCluster)
 
@@ -492,9 +492,21 @@ func (r *CAPIImportReconciler) deleteDependentRancherCluster(ctx context.Context
 	return client.IgnoreNotFound(r.Client.DeleteAllOf(ctx, &managementv3.Cluster{}, selectors...))
 }
 
-// optOutOfClusterOwner annotates the cluster with the opt-out annotation.
-// Rancher will detect this annotation and it won't create ProjectOwner or ClusterOwner roles.
-func (r *CAPIImportReconciler) optOutOfClusterOwner(ctx context.Context, rancherCluster *managementv3.Cluster) {
+// reconcileClusterOwner decides who owns the Rancher cluster of an imported CAPI cluster.
+//
+// When the Rancher cluster is being created and the CAPI cluster names its creator in the
+// `field.cattle.io/creatorId` annotation, the annotation (and the optional
+// `field.cattle.io/creator-principal-name`) is copied to the Rancher cluster. Rancher then makes
+// that user ClusterOwner and ProjectOwner, as it does for clusters it provisions itself.
+//
+// In every other case the cluster is annotated with the opt-out annotation, as before: Rancher
+// detects it and won't create ProjectOwner or ClusterOwner roles.
+//
+// Rancher rejects a cluster that carries both annotations and treats both as immutable, so an
+// existing Rancher cluster is never switched from one to the other.
+func (r *CAPIImportReconciler) reconcileClusterOwner(ctx context.Context, rancherCluster *managementv3.Cluster,
+	capiCluster *clusterv1.Cluster, creating bool,
+) {
 	log := log.FromContext(ctx)
 
 	annotations := rancherCluster.GetAnnotations()
@@ -502,14 +514,35 @@ func (r *CAPIImportReconciler) optOutOfClusterOwner(ctx context.Context, rancher
 		annotations = map[string]string{}
 	}
 
-	if _, ok := annotations[turtlesannotations.NoCreatorRBACAnnotation]; !ok {
-		log.Info(fmt.Sprintf("Rancher cluster '%s' does not have the NoCreatorRBACAnnotation annotation: '%s', annotating it",
-			rancherCluster.Name,
-			turtlesannotations.ClusterImportedAnnotation))
-
-		annotations[turtlesannotations.NoCreatorRBACAnnotation] = trueValue
-		rancherCluster.SetAnnotations(annotations)
+	if _, ok := annotations[turtlesannotations.CreatorIDAnnotation]; ok {
+		return
 	}
+
+	if _, ok := annotations[turtlesannotations.NoCreatorRBACAnnotation]; ok {
+		return
+	}
+
+	if creatorID := capiCluster.GetAnnotations()[turtlesannotations.CreatorIDAnnotation]; creating && creatorID != "" {
+		log.Info(fmt.Sprintf("CAPI cluster '%s' names its creator, Rancher will make user '%s' owner of the imported cluster",
+			capiCluster.Name, creatorID))
+
+		annotations[turtlesannotations.CreatorIDAnnotation] = creatorID
+
+		if principal := capiCluster.GetAnnotations()[turtlesannotations.CreatorPrincipalNameAnnotation]; principal != "" {
+			annotations[turtlesannotations.CreatorPrincipalNameAnnotation] = principal
+		}
+
+		rancherCluster.SetAnnotations(annotations)
+
+		return
+	}
+
+	log.Info(fmt.Sprintf("Rancher cluster '%s' does not have the NoCreatorRBACAnnotation annotation: '%s', annotating it",
+		rancherCluster.Name,
+		turtlesannotations.ClusterImportedAnnotation))
+
+	annotations[turtlesannotations.NoCreatorRBACAnnotation] = trueValue
+	rancherCluster.SetAnnotations(annotations)
 }
 
 // propogateLabels copies the labels from the CAPI cluster to the Rancher mgmt cluster.

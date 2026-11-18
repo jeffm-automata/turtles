@@ -729,6 +729,36 @@ var _ = Describe("reconcile CAPI Cluster", func() {
 		}).Should(Succeed())
 	})
 
+	It("should name the creator of the CAPI cluster as creator of the imported rancher cluster", func() {
+		const creatorID, creatorPrincipal = "u-creator", "local://u-creator"
+		capiCluster.Annotations = map[string]string{
+			turtlesannotations.CreatorIDAnnotation:            creatorID,
+			turtlesannotations.CreatorPrincipalNameAnnotation: creatorPrincipal,
+		}
+		Expect(cl.Create(ctx, capiCluster)).To(Succeed())
+		setControlPlaneReady(capiCluster)
+		Expect(cl.Status().Update(ctx, capiCluster)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			res, err := r.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: capiCluster.Namespace,
+					Name:      capiCluster.Name,
+				},
+			})
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(res.RequeueAfter).To(Equal(defaultRequeueDuration))
+		}).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			g.Expect(cl.List(ctx, rancherClusters, selectors...)).ToNot(HaveOccurred())
+			g.Expect(rancherClusters.Items).To(HaveLen(1))
+			g.Expect(rancherClusters.Items[0].Annotations).To(HaveKeyWithValue(turtlesannotations.CreatorIDAnnotation, creatorID))
+			g.Expect(rancherClusters.Items[0].Annotations).To(HaveKeyWithValue(turtlesannotations.CreatorPrincipalNameAnnotation, creatorPrincipal))
+			g.Expect(rancherClusters.Items[0].Annotations).ToNot(HaveKey(turtlesannotations.NoCreatorRBACAnnotation))
+		}).Should(Succeed())
+	})
+
 	It("should remove the rancher cluster finalizer when the CAPI cluster is already marked as imported", func() {
 		// simulate that the CAPI cluster was annotated but the Rancher cluster's finalizer failed to be removed.
 		capiCluster.Annotations = map[string]string{

@@ -29,6 +29,14 @@ const (
 	// This is required so that logs don't get flooded with errors when project handler and cluster handler
 	// attempt to create `ClusterOwner` and `ProjectOwner` roles.
 	NoCreatorRBACAnnotation = "field.cattle.io/no-creator-rbac"
+	// CreatorIDAnnotation names the Rancher user that created a cluster. Rancher makes that user
+	// ClusterOwner and ProjectOwner of a management Cluster carrying it. On a CAPI Cluster it tells
+	// Turtles whom to name as creator of the Rancher cluster it creates on import.
+	// It can not be combined with NoCreatorRBACAnnotation.
+	CreatorIDAnnotation = "field.cattle.io/creatorId"
+	// CreatorPrincipalNameAnnotation optionally names the principal of the creator, for users of
+	// external authentication providers. It requires CreatorIDAnnotation.
+	CreatorPrincipalNameAnnotation = "field.cattle.io/creator-principal-name"
 	// ExternalFleetAnnotation represents cluster provisioned and managed by external fleet.
 	ExternalFleetAnnotation = "provisioning.cattle.io/externally-managed"
 	// EtcdAutomaticSnapshot represents automatically generated etcd snapshot.
