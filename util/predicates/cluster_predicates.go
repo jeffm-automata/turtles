@@ -88,7 +88,7 @@ func processIfClusterNotImported(logger logr.Logger, obj client.Object) bool {
 }
 
 // ClusterWithReadyControlPlane returns a predicate that returns true only if the provided resource is a cluster with a
-// ready control plane.
+// ready control plane, or a cluster that is being deleted.
 func ClusterWithReadyControlPlane(logger logr.Logger) predicate.Funcs {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -119,6 +119,15 @@ func processIfClusterReadyControlPlane(logger logr.Logger, obj client.Object) bo
 
 	if conditions.IsTrue(cluster, clusterv1.ClusterControlPlaneAvailableCondition) {
 		log.V(6).Info("Cluster has a ready control plane condition, will attempt to map resource")
+		return true
+	}
+
+	// A cluster that is being deleted has to be reconciled whatever state its control plane is in:
+	// the import controller deletes the Rancher cluster and removes its finalizer from the CAPI
+	// cluster. Filtered here, a cluster whose control plane was down when the delete arrived
+	// would keep the finalizer, and its Rancher cluster, forever.
+	if !cluster.DeletionTimestamp.IsZero() {
+		log.V(6).Info("Cluster is being deleted, will attempt to map resource")
 		return true
 	}
 

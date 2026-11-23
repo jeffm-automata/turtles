@@ -104,6 +104,15 @@ var _ = Describe("ClusterWithReadyControlPlane", func() {
 		result := ClusterWithReadyControlPlane(logger).UpdateFunc(event.UpdateEvent{ObjectNew: capiCluster})
 		Expect(result).To(BeFalse())
 	})
+
+	It("should return true when a cluster without ready control plane is being deleted", func() {
+		now := metav1.Now()
+		capiCluster.DeletionTimestamp = &now
+		capiCluster.Finalizers = []string{"capicluster.turtles.cattle.io"}
+
+		Expect(ClusterWithReadyControlPlane(logger).UpdateFunc(event.UpdateEvent{ObjectNew: capiCluster})).To(BeTrue())
+		Expect(ClusterWithReadyControlPlane(logger).GenericFunc(event.GenericEvent{Object: capiCluster})).To(BeTrue())
+	})
 })
 
 var _ = Describe("ClusterOrNamespaceWithImportLabel", func() {

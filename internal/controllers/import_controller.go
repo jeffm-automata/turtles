@@ -163,8 +163,9 @@ func (r *CAPIImportReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// Wait for controlplane to be ready. This should never be false as the predicates
-	// do the filtering.
-	if !conditions.IsTrue(capiCluster, clusterv1.ClusterControlPlaneAvailableCondition) {
+	// do the filtering. A cluster that is being deleted is reconciled without one: only the
+	// management cluster is touched for it (the Rancher cluster is deleted, the finalizer removed).
+	if capiCluster.DeletionTimestamp.IsZero() && !conditions.IsTrue(capiCluster, clusterv1.ClusterControlPlaneAvailableCondition) {
 		log.Info("clusters control plane is not ready, requeue")
 		return ctrl.Result{RequeueAfter: defaultRequeueDuration}, nil
 	}
